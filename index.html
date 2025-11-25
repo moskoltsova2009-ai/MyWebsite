@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Виктория — репетитор по английскому языку</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    body {
+      background: #000;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    canvas {
+      display: block;
+      cursor: default;
+    }
+  </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<script>
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  const FORM_URL = 'https://forms.gle/3crSq3ZBRBCLVnmLA';
+  const PHOTO_URL = 'https://upload.wikimedia.org/wikipedia/commons/4/4d/Cat_November_2010-1a.jpg';
+
+  let photoImage = null;
+  let photoLoaded = false;
+
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => { photoImage = img; photoLoaded = true; };
+  img.onerror = () => { console.warn('Фото не загрузилось'); photoLoaded = false; };
+  img.src = PHOTO_URL;
+
+  const synth = window.speechSynthesis;
+  let lastHoveredChar = null;
+  let speakTimeout = null;
+
+  let mouseX = -100;
+  let mouseY = -100;
+  let isOverPhoto = false;
+  let isOverButton = false;
+
+  canvas.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+  canvas.addEventListener('mouseleave', () => {
+    mouseX = -100;
+    mouseY = -100;
+    isOverPhoto = false;
+    isOverButton = false;
+    if (speakTimeout) clearTimeout(speakTimeout);
+    lastHoveredChar = null;
+  });
+
+  let photoArea = { x: 0, y: 0, radius: 0 };
+  let buttonArea = { x: 0, y: 0, width: 0, height: 0 };
+  let isFormOpening = false;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  let time = 0;
+  function animateBackground() {
+    const w = canvas.width;
+    const h = canvas.height;
+    const gradient = ctx.createLinearGradient(0, 0, w, h);
+    const hue1 = (time * 0.3) % 360;
+    const hue2 = (hue1 + 120) % 360;
+    const hue3 = (hue1 + 240) % 360;
+    gradient.addColorStop(0, `hsl(${hue1}, 85%, 55%)`);
+    gradient.addColorStop(0.5, `hsl(${hue2}, 85%, 65%)`);
+    gradient.addColorStop(1, `hsl(${hue3}, 85%, 55%)`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, h);
+    time += 0.5;
+  }
+
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXY'.split('');
+
+  class LetterParticle {
+    constructor() { this.reset(); }
+    reset() {
+      this.x = Math.random() * canvas.width;
+      this.y = Math.random() * canvas.height;
+      this.size = Math.random() * 24 + 16;
+      this.speedX = (Math.random() - 0.5) * 1.5;
+      this.speedY = (Math.random() - 0.5) * 1.5;
+      this.char = alphabet[Math.floor(Math.random() * alphabet.length)];
+      this.color = `hsla(${Math.random() * 360}, 90%, 80%, 0.95)`;
+      this.font = `${this.size}px 'Comic Sans MS', cursive, sans-serif`;
+      this.isHovered = false;
+    }
+    update() {
+      const dx = this.x - mouseX;
+      const dy = this.y - mouseY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      this.isHovered = dist < this.size;
+
+      if (dist < 120) {
+        const force = (120 - dist) / 120;
+        const angle = Math.atan2(dy, dx);
+        this.speedX += Math.cos(angle) * force * 3;
+        this.speedY += Math.sin(angle) * force * 3;
+      }
+
+      this.speedX = Math.max(-5, Math.min(5, this.speedX));
+      this.speedY = Math.max(-5, Math.min(5, this.speedY));
+      this.x += this.speedX;
+      this.y += this.speedY;
+
+      if (this.x <= 0 || this.x >= canvas.width) this.speedX *= -0.9;
+      if (this.y <= 0 || this.y >= canvas.height) this.speedY *= -0.9;
+      this.x = Math.max(0, Math.min(canvas.width, this.x));
+      this.y = Math.max(0, Math.min(canvas.height, this.y));
+
+      if (Math.random() < 0.001) {
+        this.char = alphabet[Math.floor(Math.random() * alphabet.length)];
+        this.color = `hsla(${Math.random() * 360}, 90%, 80%, 0.95)`;
+      }
+    }
+    draw() {
+      ctx.font = this.font;
+      ctx.fillStyle = this.isHovered ? 'white' : this.color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = this.isHovered ? 12 : 6;
+      ctx.fillText(this.char, this.x, this.y);
+      ctx.shadowBlur = 0;
+
+      if (this.isHovered && this.char !== lastHoveredChar) {
+        lastHoveredChar = this.char;
+        if (speakTimeout) clearTimeout(speakTimeout);
+        speakTimeout = setTimeout(() => {
+          if (synth) {
+            const utter = new SpeechSynthesisUtterance(this.char);
+            utter.lang = 'en-US';
+            utter.rate = 1.0;
+            utter.pitch = 1.2;
+            synth.cancel();
+            synth.speak(utter);
+          }
+        }, 200);
+      }
+    }
+  }
+
+  const letters = Array.from({ length: 50 }, () => new LetterParticle());
+
+  function isPointInCircle(px, py, cx, cy, r) {
+    return (px - cx) ** 2 + (py - cy) ** 2 <= r ** 2;
+  }
+
+  // ✨ ОБНОВЛЕНО: фото и надпись подняты
+  function drawPhoto() {
+    const photoSize = Math.min(canvas.width * 0.32, canvas.height * 0.55);
+    const photoX = canvas.width - photoSize / 2 - 40;
+    const photoY = canvas.height / 2 - 80; // фото выше
+
+    photoArea = { x: photoX, y: photoY, radius: photoSize / 2 };
+    isOverPhoto = isPointInCircle(mouseX, mouseY, photoX, photoY, photoSize / 2);
+
+    if (photoLoaded) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(photoX, photoY, photoSize / 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(photoImage, photoX - photoSize / 2, photoY - photoSize / 2, photoSize, photoSize);
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.arc(photoX, photoY, photoSize / 2, 0, Math.PI * 2);
+      ctx.strokeStyle = isOverPhoto ? 'white' : 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    if (isOverPhoto) {
+      const text = "Hi! I'm Victoria 👋";
+      const fontSize = Math.min(canvas.width, canvas.height) * 0.064;
+      ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+      const textWidth = ctx.measureText(text).width;
+      const p = fontSize * 0.6;
+      const h = fontSize + p;
+      const w = textWidth + p * 2;
+
+      const bx = photoX - photoSize / 2 - w - 25;
+      const by = photoY - h / 2 - 80; // ← ПОДНЯТО НА 80px
+
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.beginPath();
+      ctx.moveTo(photoX - photoSize / 2, photoY - 40); // хвост от верхней части фото
+      ctx.lineTo(bx + w, by + h / 2 - 10);
+      ctx.lineTo(bx + w, by + h / 2 + 10);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.roundRect(bx, by, w, h, 16);
+      ctx.fill();
+
+      ctx.fillStyle = '#222222';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, bx + w / 2, by + h / 2);
+    }
+  }
+
+  function drawButton() {
+    const fontSize = Math.min(canvas.width, canvas.height) * 0.032;
+    ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+    const text = "Записаться на пробный урок";
+    const tw = ctx.measureText(text).width;
+    const p = 20;
+    const w = tw + p * 2;
+    const h = fontSize + p;
+    const x = canvas.width / 2 - w / 2;
+    const y = canvas.height - 120;
+
+    buttonArea = { x, y, width: w, height: h };
+    isOverButton = (
+      mouseX >= x && mouseX <= x + w &&
+      mouseY >= y && mouseY <= y + h
+    );
+
+    ctx.fillStyle = isOverButton ? 'rgba(255,255,255,1)' : 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 12);
+    ctx.fill();
+
+    ctx.fillStyle = '#1a2a6c';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, canvas.width / 2, y + h / 2);
+
+    canvas.style.cursor = (isOverButton || isOverPhoto) ? 'pointer' : 'default';
+  }
+
+  // ✅ НАДЁЖНЫЙ КЛИК ПО КНОПКЕ
+  canvas.addEventListener('click', (e) => {
+    if (isFormOpening) return;
+
+    const clickX = e.clientX;
+    const clickY = e.clientY;
+    const { x, y, width, height } = buttonArea;
+
+    const clickedOnButton = (
+      clickX >= x && clickX <= x + width &&
+      clickY >= y && clickY <= y + height
+    );
+
+    if (clickedOnButton) {
+      isFormOpening = true;
+
+      // Визуальная обратная связь
+      drawButton();
+      ctx.fillStyle = 'rgba(100,200,255,0.3)';
+      ctx.fillRect(x, y, width, height);
+
+      console.log("✅ Открываем форму:", FORM_URL);
+      const win = window.open(FORM_URL, '_blank', 'noopener,noreferrer');
+
+      setTimeout(() => {
+        if (!win || win.closed || win.location.href === 'about:blank') {
+          window.location.href = FORM_URL;
+        }
+        isFormOpening = false;
+      }, 600);
+    }
+  });
+
+  function drawText() {
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.font = `bold ${Math.min(w, h) * 0.07}px 'Comic Sans MS', cursive`;
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur = 12;
+    ctx.fillText('Виктория — репетитор по английскому языку', w / 2, h * 0.15);
+
+    const cx = 80;
+    const cy = h / 2;
+
+    ctx.font = `${Math.min(w, h) * 0.057}px 'Segoe UI', sans-serif`;
+    ctx.fillStyle = 'white';
+    ctx.shadowBlur = 6;
+    ctx.textAlign = 'left';
+    ctx.fillText('📚 Индивидуальные занятия', cx, cy);
+    ctx.fillText('🗣️ Разговорная практика', cx, cy + 50);
+    ctx.fillText('🎓 Подготовка к экзаменам', cx, cy + 100);
+
+    ctx.font = `${Math.min(w, h) * 0.048}px 'Segoe UI', sans-serif`;
+    ctx.fillText('📞 +7 (931) 300-04-80', cx, cy + 160);
+    ctx.fillText('✉️ koltsova2009@mail.ru', cx, cy + 200);
+
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+  }
+
+  function animate() {
+    animateBackground();
+    letters.forEach(l => { l.update(); l.draw(); });
+    drawPhoto();
+    drawText();
+    drawButton();
+    requestAnimationFrame(animate);
+  }
+
+  animate();
+</script>
+</body>
+</html>
